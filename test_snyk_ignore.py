@@ -154,5 +154,61 @@ class TestSnykIgnoreFunctions(unittest.TestCase):
             args, kwargs = mock_requests_post.call_args
             self.assertEqual(kwargs["json"]["reason"], "Base reason: Custom ignore reason")
 
+    @patch("requests.post")
+    def test_process_csv_with_type_column(self, mock_requests_post):
+        # Mock CSV contents with an additional column for ignore type
+        mock_csv_data = """ISSUE_URL,IGNORE_TYPE
+"https://app.snyk.io/org/test-org/project/test-proj#issue-snyk%3Alic%3Apip%3Acommon-lib%3AUnknown","not-vulnerable"
+"""
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests_post.return_value = mock_response
+
+        with patch("builtins.open", mock_open(read_data=mock_csv_data)):
+            # Test with only type column
+            process_csv(
+                file_path="fake.csv",
+                token="fake-token",
+                reason_text="test reason",
+                reason_type=None,
+                disregard_if_fixable=False,
+                expires=None,
+                ignore_path="*",
+                type_column="IGNORE_TYPE"
+            )
+
+            # Verify the API was called with the type from the column
+            args, kwargs = mock_requests_post.call_args
+            self.assertEqual(kwargs["json"]["reasonType"], "not-vulnerable")
+
+    @patch("requests.post")
+    def test_process_csv_with_type_column_fallback(self, mock_requests_post):
+        # Mock CSV contents with an additional column for ignore type
+        mock_csv_data = """ISSUE_URL,IGNORE_TYPE
+"https://app.snyk.io/org/test-org/project/test-proj#issue-snyk%3Alic%3Apip%3Acommon-lib%3AUnknown","temporary-ignore"
+"""
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests_post.return_value = mock_response
+
+        with patch("builtins.open", mock_open(read_data=mock_csv_data)):
+            # Test with both type argument and type column - column should take precedence
+            process_csv(
+                file_path="fake.csv",
+                token="fake-token",
+                reason_text="test reason",
+                reason_type="wont-fix",
+                disregard_if_fixable=False,
+                expires=None,
+                ignore_path="*",
+                type_column="IGNORE_TYPE"
+            )
+
+            # Verify the API was called with the type from the column (not the argument)
+            args, kwargs = mock_requests_post.call_args
+            self.assertEqual(kwargs["json"]["reasonType"], "temporary-ignore")
+
 if __name__ == "__main__":
     unittest.main()

@@ -30,11 +30,16 @@ def parse_args():
     )
     parser.add_argument(
         "--type",
-        required=True,
+        required=False,
         help=(
             "The classification of the ignore reason. "
             "Valid options include: 'not-vulnerable', 'wont-fix', 'temporary-ignore'."
         )
+    )
+    parser.add_argument(
+        "--type-column",
+        required=False,
+        help="Name of the CSV column containing the ignore reason type."
     )
     parser.add_argument(
         "--disregard-if-fixable",
@@ -57,6 +62,10 @@ def parse_args():
     # Validate that at least one of text or ignore-text-column is provided
     if not args.text and not args.ignore_text_column:
         parser.error("At least one of --text or --ignore-text-column must be provided")
+    
+    # Validate that at least one of type or type-column is provided
+    if not args.type and not args.type_column:
+        parser.error("At least one of --type or --type-column must be provided")
     
     return args
 
@@ -150,16 +159,18 @@ def process_csv(
     file_path: str,
     token: str,
     reason_text: Optional[str],
-    reason_type: str,
+    reason_type: Optional[str],
     disregard_if_fixable: bool,
     expires: Optional[str],
     ignore_path: str,
-    ignore_text_column: Optional[str] = None
+    ignore_text_column: Optional[str] = None,
+    type_column: Optional[str] = None
 ):
     """
     Read a CSV file and ignore issues in Snyk based on its contents.
     Assumes the CSV has a column named ISSUE_URL containing the full Snyk issue URL.
     If ignore_text_column is provided, the text from that column will be used or appended to reason_text.
+    If type_column is provided, the type from that column will be used as fallback to reason_type.
     """
     with open(file_path, newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
@@ -193,13 +204,28 @@ def process_csv(
                     else:
                         final_reason_text = column_text
 
+            # Handle the reason type from column if specified
+            final_reason_type = reason_type or ""
+            if type_column:
+                column_type = row.get(type_column, "").strip()
+                if not column_type:
+                    print(f"Warning: Missing type in column {type_column} for row: {row}")
+                    if not reason_type:
+                        print("Skipping row due to missing ignore type")
+                        continue
+                else:
+                    final_reason_type = column_type
+            elif not reason_type:
+                print("Skipping row due to missing ignore type")
+                continue
+
             response = call_snyk_ignore_api(
                 org_id=org_id,
                 project_id=project_id,
                 issue_id=issue_id,
                 token=token,
                 reason_text=final_reason_text,
-                reason_type=reason_type,
+                reason_type=final_reason_type,
                 disregard_if_fixable=disregard_if_fixable,
                 expires=expires,
                 ignore_path=ignore_path
@@ -228,7 +254,8 @@ def main():
         disregard_if_fixable=args.disregard_if_fixable,
         expires=args.expires,
         ignore_path=args.ignore_path,
-        ignore_text_column=args.ignore_text_column
+        ignore_text_column=args.ignore_text_column,
+        type_column=args.type_column
     )
 
 if __name__ == "__main__":
