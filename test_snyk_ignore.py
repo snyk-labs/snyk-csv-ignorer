@@ -210,5 +210,89 @@ class TestSnykIgnoreFunctions(unittest.TestCase):
             args, kwargs = mock_requests_post.call_args
             self.assertEqual(kwargs["json"]["reasonType"], "temporary-ignore")
 
+    @patch("requests.post")
+    def test_process_csv_with_expires_column(self, mock_requests_post):
+        # Mock CSV contents with an additional column for expires
+        mock_csv_data = """ISSUE_URL,EXPIRES_DATE
+"https://app.snyk.io/org/test-org/project/test-proj#issue-snyk%3Alic%3Apip%3Acommon-lib%3AUnknown","2024-12-31"
+"""
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests_post.return_value = mock_response
+
+        with patch("builtins.open", mock_open(read_data=mock_csv_data)):
+            # Test with only expires column
+            process_csv(
+                file_path="fake.csv",
+                token="fake-token",
+                reason_text="test reason",
+                reason_type="temporary-ignore",
+                disregard_if_fixable=False,
+                expires=None,
+                ignore_path="*",
+                expires_column="EXPIRES_DATE"
+            )
+
+            # Verify the API was called with the expires from the column
+            args, kwargs = mock_requests_post.call_args
+            self.assertEqual(kwargs["json"]["expires"], "2024-12-31")
+
+    @patch("requests.post")
+    def test_process_csv_with_expires_column_fallback(self, mock_requests_post):
+        # Mock CSV contents with an additional column for expires
+        mock_csv_data = """ISSUE_URL,EXPIRES_DATE
+"https://app.snyk.io/org/test-org/project/test-proj#issue-snyk%3Alic%3Apip%3Acommon-lib%3AUnknown","2025-06-30"
+"""
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests_post.return_value = mock_response
+
+        with patch("builtins.open", mock_open(read_data=mock_csv_data)):
+            # Test with both expires argument and expires column - column should take precedence
+            process_csv(
+                file_path="fake.csv",
+                token="fake-token",
+                reason_text="test reason",
+                reason_type="temporary-ignore",
+                disregard_if_fixable=False,
+                expires="2024-12-31",
+                ignore_path="*",
+                expires_column="EXPIRES_DATE"
+            )
+
+            # Verify the API was called with the expires from the column (not the argument)
+            args, kwargs = mock_requests_post.call_args
+            self.assertEqual(kwargs["json"]["expires"], "2025-06-30")
+
+    @patch("requests.post")
+    def test_process_csv_with_empty_expires_column_fallback(self, mock_requests_post):
+        # Mock CSV contents with an empty expires column
+        mock_csv_data = """ISSUE_URL,EXPIRES_DATE
+"https://app.snyk.io/org/test-org/project/test-proj#issue-snyk%3Alic%3Apip%3Acommon-lib%3AUnknown",""
+"""
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests_post.return_value = mock_response
+
+        with patch("builtins.open", mock_open(read_data=mock_csv_data)):
+            # Test with both expires argument and empty expires column - should fall back to argument
+            process_csv(
+                file_path="fake.csv",
+                token="fake-token",
+                reason_text="test reason",
+                reason_type="temporary-ignore",
+                disregard_if_fixable=False,
+                expires="2024-12-31",
+                ignore_path="*",
+                expires_column="EXPIRES_DATE"
+            )
+
+            # Verify the API was called with the expires from the argument (fallback)
+            args, kwargs = mock_requests_post.call_args
+            self.assertEqual(kwargs["json"]["expires"], "2024-12-31")
+
 if __name__ == "__main__":
     unittest.main()

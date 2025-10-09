@@ -53,6 +53,11 @@ def parse_args():
         help="Timestamp (ISO 8601) when the ignore expires, e.g. 2025-12-31."
     )
     parser.add_argument(
+        "--expires-column",
+        required=False,
+        help="Name of the CSV column containing the expires timestamp."
+    )
+    parser.add_argument(
         "--ignore-path",
         default="*",
         help="Path to ignore, default is '*'."
@@ -164,13 +169,15 @@ def process_csv(
     expires: Optional[str],
     ignore_path: str,
     ignore_text_column: Optional[str] = None,
-    type_column: Optional[str] = None
+    type_column: Optional[str] = None,
+    expires_column: Optional[str] = None
 ):
     """
     Read a CSV file and ignore issues in Snyk based on its contents.
     Assumes the CSV has a column named ISSUE_URL containing the full Snyk issue URL.
     If ignore_text_column is provided, the text from that column will be used or appended to reason_text.
     If type_column is provided, the type from that column will be used as fallback to reason_type.
+    If expires_column is provided, the expires date from that column will be used as fallback to expires.
     """
     with open(file_path, newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
@@ -219,6 +226,14 @@ def process_csv(
                 print("Skipping row due to missing ignore type")
                 continue
 
+            # Handle the expires date from column if specified
+            final_expires = expires
+            if expires_column:
+                column_expires = row.get(expires_column, "").strip()
+                if column_expires:
+                    final_expires = column_expires
+                # Note: If column is specified but empty, we fall back to the command-line expires value
+
             response = call_snyk_ignore_api(
                 org_id=org_id,
                 project_id=project_id,
@@ -227,7 +242,7 @@ def process_csv(
                 reason_text=final_reason_text,
                 reason_type=final_reason_type,
                 disregard_if_fixable=disregard_if_fixable,
-                expires=expires,
+                expires=final_expires,
                 ignore_path=ignore_path
             )
 
@@ -255,7 +270,8 @@ def main():
         expires=args.expires,
         ignore_path=args.ignore_path,
         ignore_text_column=args.ignore_text_column,
-        type_column=args.type_column
+        type_column=args.type_column,
+        expires_column=args.expires_column
     )
 
 if __name__ == "__main__":
